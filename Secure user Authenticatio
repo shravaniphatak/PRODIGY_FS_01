@@ -1,0 +1,203 @@
+const LocalStrategy = require('passport-local').Strategy;
+const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
+
+// Load User model
+const User = mongoose.model('User');
+
+module.exports = function(passport) {
+    passport.use(new LocalStrategy({ usernameField: 'email' }, (email, password, done) => {
+        // Match user
+        User.findOne({
+            email: email
+        }).then(user => {
+            if (!user) {
+                return done(null, false, { message: 'That email is not registered' });
+            }
+
+            // Match password
+            bcrypt.compare(password, user.password, (err, isMatch) => {
+                if (err) throw err;
+                if (isMatch) {
+                    return done(null, user);
+                } else {
+                    return done(null, false, { message: 'Password incorrect' });
+                }
+            });
+        });
+    }));
+
+    passport.serializeUser((user, done) => {
+        done(null, user.id);
+    });
+
+    passport.deserializeUser((id, done) => {
+        User.findById(id, (err, user) => {
+            done(err, user);
+        });
+    });
+};
+const mongoose = require('mongoose');
+
+const UserSchema = new mongoose.Schema({
+    name: {
+        type: String,
+        required: true
+    },
+    email: {
+        type: String,
+        required: true,
+        unique: true
+    },
+    password: {
+        type: String,
+        required: true
+    },
+    date: {
+        type: Date,
+        default: Date.now
+    }
+});
+
+const User = mongoose.model('User', UserSchema);
+
+module.exports = User;
+const express = require('express');
+const router = express.Router();
+const bcrypt = require('bcryptjs');
+const passport = require('passport');
+
+// Load User model
+const User = require('../models/User');
+
+// Login Page
+router.get('/login', (req, res) => res.send('Login Page'));
+
+// Register Page
+router.get('/register', (req, res) => res.send('Register Page'));
+
+// Register
+router.post('/register', (req, res) => {
+    const { name, email, password, password2 } = req.body;
+    let errors = [];
+
+    // Check required fields
+    if (!name || !email || !password || !password2) {
+        errors.push({ msg: 'Please enter all fields' });
+    }
+
+    // Check passwords match
+    if (password !== password2) {
+        errors.push({ msg: 'Passwords do not match' });
+    }
+
+    // Check password length
+    if (password.length < 6) {
+        errors.push({ msg: 'Password must be at least 6 characters' });
+    }
+
+    if (errors.length > 0) {
+        res.send('Errors'); // Handle errors as required
+    } else {
+        User.findOne({ email: email }).then(user => {
+            if (user) {
+                errors.push({ msg: 'Email already exists' });
+                res.send('Errors'); // Handle errors as required
+            } else {
+                const newUser = new User({
+                    name,
+                    email,
+                    password
+                });
+
+                // Hash password
+                bcrypt.genSalt(10, (err, salt) => bcrypt.hash(newUser.password, salt, (err, hash) => {
+                    if (err) throw err;
+                    newUser.password = hash;
+                    newUser.save()
+                        .then(user => res.send('User Registered'))
+                        .catch(err => console.log(err));
+                }));
+            }
+        });
+    }
+});
+
+// Login
+router.post('/login', (req, res, next) => {
+    passport.authenticate('local', {
+        successRedirect: '/dashboard',
+        failureRedirect: '/users/login',
+        failureFlash: true
+    })(req, res, next);
+});
+
+// Logout
+router.get('/logout', (req, res) => {
+    req.logout(err => {
+        if (err) { return next(err); }
+        res.redirect('/users/login');
+    });
+});
+
+module.exports = router;
+const express = require('express');
+const router = express.Router();
+const { ensureAuthenticated } = require('../config/auth');
+
+// Welcome Page
+router.get('/', (req, res) => res.send('Welcome'));
+
+// Dashboard
+router.get('/dashboard', ensureAuthenticated, (req, res) => 
+    res.send('Dashboard - Protected Route')
+);
+
+module.exports = router;
+module.exports = {
+    ensureAuthenticated: function(req, res, next) {
+        if (req.isAuthenticated()) {
+            return next();
+        }
+        res.redirect('/users/login');
+    }
+};
+const express = require('express');
+const mongoose = require('mongoose');
+const passport = require('passport');
+const session = require('express-session');
+const app = express();
+require('dotenv').config();
+
+// Passport Config
+require('./config/passport')(passport);
+
+// DB Config
+const db = process.env.MONGO_URI;
+
+// Connect to MongoDB
+mongoose.connect(db, { useNewUrlParser: true, useUnifiedTopology: true })
+    .then(() => console.log('MongoDB Connected'))
+    .catch(err => console.log(err));
+
+// Express body parser
+app.use(express.urlencoded({ extended: true }));
+
+// Express session
+app.use(session({
+    secret: 'secret',
+    resave: true,
+    saveUninitialized: true
+}));
+
+// Passport middleware
+app.use(passport.initialize());
+app.use(passport.session());
+
+// Routes
+app.use('/', require('./routes/index'));
+app.use('/users', require('./routes/users'));
+
+const PORT = process.env.PORT || 5000;
+
+app.listen(PORT, console.log(Server started on port ${PORT}));
